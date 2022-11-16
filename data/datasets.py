@@ -11,6 +11,8 @@ from torch import Tensor
 import matplotlib.pyplot as plt
 from PIL import Image
 
+import data.utils.xmp as xmp
+
 
 def show_tensor_images(image_tensor):
     """
@@ -43,6 +45,7 @@ def make_dataset(directory: str, extensions) -> List[str]:
 
     Args:
         directory: Top level location of files in question.
+        extensions: Allowed extensions for the dataset being created, i.e. jpg, gif, png etc.
 
     Returns:
         List of absolute paths to files.
@@ -56,8 +59,8 @@ def make_dataset(directory: str, extensions) -> List[str]:
 
     for f in sorted(folder.iterdir()):
         path = f.absolute().resolve()
-        if f.is_file() and is_valid_file(path, extensions):
-            instances.append(path)  # empty second element to maintain
+        if f.is_file() and is_valid_file(path.__str__(), extensions):
+            instances.append(path.__str__())
 
     return instances
 
@@ -77,6 +80,32 @@ def image_loader(path: str) -> Image:
         temp = ToTensor()(im)
         return im
 
+def xmp_loader(path: str) -> Tuple[Image, dict]:
+    """
+    Loads a PIL image from file along with a dictionary of meta-data for that file.
+
+    The metadata must be in a directory "xmp" which at the level of the image's containing directory:
+
+    data/
+     |__images/
+     |  |__ img1.jpg
+     |
+     |__xmp/
+        |__ img1.xmp
+
+    Args:
+        path: Path to the image.
+
+    Returns: The image and its meta-data.
+
+    """
+    xmp_path = pathlib.Path(path).parent.parent / "xmp"
+
+    image = image_loader(path)
+    meta_data = xmp.get_crs_tags(xmp_path.__str__())
+
+    return image, meta_data
+
 
 class AutoImageData(Dataset):
     _repr_indent = 4
@@ -90,10 +119,10 @@ class AutoImageData(Dataset):
             target_transform: Optional[Callable] = None,
     ) -> None:
         """
-        Dataset of input images.
+        Dataset of images.
 
-        Indexing into the dataset will return a tuple of two identical images for compatability with
-        standard trainers expecting inputs and ground truth.
+        Indexing into the dataset will return a tuple of `(original_img, xformed_img)` in the case that a target transform
+        is requested. Otherwise, the second element of the tuple will be None.
 
         Args:
             root:
@@ -127,7 +156,7 @@ class AutoImageData(Dataset):
         if self.target_transform is not None:
             target = self.target_transform(sample)
         else:
-            target = sample
+            target = None
 
         return sample, target
 
@@ -152,6 +181,45 @@ class AutoImageData(Dataset):
         return ""
 
 
-class MetaImageSet(Dataset):
-    def __init__(self):
-        super().__init__()
+class MetaImageSet(AutoImageData):
+    def __init__(
+            self,
+            root: str,
+            loader: Callable[[str], Any],
+            valid_extensions: Optional[Tuple[str, ...]] = None,
+            input_transform: Optional[Callable] = None,
+            target_transform: Optional[Callable] = None,
+    ) -> None:
+        """
+
+        Args:
+            root:
+            loader: Loader is a callable that takes the argument of a path to an image. The loader is responsible for
+                returning both the image and the meta-data based on the input path.
+            valid_extensions:
+                Image extensions allowed for this dataset.
+            input_transform:
+                Any transform to apply to the image.
+            target_transform:
+                Any transform to apply to the meta-data.
+        """
+
+        super().__init__(root, loader, valid_extensions, input_transform, target_transform)
+
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (img, metadata)
+        """
+        path = self.samples[index]
+        image, meta = self.loader(path)
+
+        if self.input_transform is not None:
+            image = self.input_transform(image)
+        if self.target_transform is not None:
+            meta = self.target_transform(meta)
+
+        return image, meta
