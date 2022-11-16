@@ -49,7 +49,7 @@ def train(device, model, epochs, lr,  train_loader, valid_loader=None, criterion
             optimizer.zero_grad()
 
             x = x.to(device).float()
-            y = y.to(device).float()
+            y = y.to(device).float() if y.numel() else x  # numel is zero if y is empty.
             out = model(x)
 
             # crop due to pixel loss during convolution.

@@ -1,7 +1,9 @@
 import math
 import pathlib
 import os
-from typing import Optional, Tuple, Callable, List, Any
+from typing import Optional, Tuple, Callable, List, Any, Dict
+
+import torch
 from torch.utils.data import Dataset
 
 from torchvision.datasets.folder import has_file_allowed_extension
@@ -39,7 +41,7 @@ def show_tensor_images(image_tensor):
     plt.show()
 
 
-def make_dataset(directory: str, extensions) -> List[str]:
+def make_dataset(directory: str, extensions: Optional[Tuple[str]]) -> List[str]:
     """
     Generates a list of samples of a form (path_to_sample, class).
 
@@ -52,12 +54,16 @@ def make_dataset(directory: str, extensions) -> List[str]:
 
     """
 
-    directory = os.path.expanduser(directory)
+    # extensions supported by most PIL versions
+    if extensions is None:
+        extensions = ".jfif .jpe .jpeg .jpg .png .tiff".split(" ")
+
+    folder = pathlib.Path(directory)
+    if folder.is_file():
+        raise ValueError("Non-directory path supplied to the directory argument.")
 
     instances = []
-    folder = pathlib.Path(directory)
-
-    for f in sorted(folder.iterdir()):
+    for f in folder.rglob("*"):
         path = f.absolute().resolve()
         if f.is_file() and is_valid_file(path.__str__(), extensions):
             instances.append(path.__str__())
@@ -69,42 +75,6 @@ def is_valid_file(path_string: str, extensions: Optional[Tuple[str]]) -> bool:
     if extensions is None:
         return True
     return has_file_allowed_extension(path_string, extensions)
-
-
-def cr3_loader(path: str) -> Tensor:
-    pass
-
-
-def image_loader(path: str) -> Image:
-    with Image.open(path) as im:
-        temp = ToTensor()(im)
-        return im
-
-def xmp_loader(path: str) -> Tuple[Image, dict]:
-    """
-    Loads a PIL image from file along with a dictionary of meta-data for that file.
-
-    The metadata must be in a directory "xmp" which at the level of the image's containing directory:
-
-    data/
-     |__images/
-     |  |__ img1.jpg
-     |
-     |__xmp/
-        |__ img1.xmp
-
-    Args:
-        path: Path to the image.
-
-    Returns: The image and its meta-data.
-
-    """
-    xmp_path = pathlib.Path(path).parent.parent / "xmp"
-
-    image = image_loader(path)
-    meta_data = xmp.get_crs_tags(xmp_path.__str__())
-
-    return image, meta_data
 
 
 class AutoImageData(Dataset):
@@ -137,6 +107,7 @@ class AutoImageData(Dataset):
         self.input_transform = input_transform
         self.target_transform = target_transform
         self.samples = make_dataset(root, valid_extensions)
+        print("hi")
 
     def __len__(self):
         return len(self.samples)
@@ -156,7 +127,7 @@ class AutoImageData(Dataset):
         if self.target_transform is not None:
             target = self.target_transform(sample)
         else:
-            target = None
+            target = torch.empty(0)  # For compatability with torch DataLoader
 
         return sample, target
 
